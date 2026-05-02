@@ -1,4 +1,4 @@
-# Engagement Experiment Pipeline
+# EduGage
 
 This repository contains the processing and modeling code for the Engagement
 Dataset. The code discovers raw participant-session folders, builds labeled
@@ -9,7 +9,7 @@ The public raw dataset is hosted on Figshare:
 
 <https://figshare.com/s/cc3a50e1f3724f7ed5f4>
 
-The Figshare item is titled **Engagement Dataset**. It is a 3.05 GB raw dataset
+The Figshare item is titled **EduGage Dataset**. It is a 3.05 GB raw dataset
 with one folder per participant session. The files are raw collection outputs,
 not cleaned/aligned/windowed preprocessing products.
 
@@ -44,7 +44,7 @@ python -m pip install -r requirements.txt
 The code expects this layout:
 
 ```text
-engagement-experiment/
+EduGage/
   data/
     P1/
       1_1_engagement_log.csv
