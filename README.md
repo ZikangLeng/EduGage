@@ -1,6 +1,6 @@
 # EduGage
 
-This repository contains the processing and modeling code for the Engagement
+This repository contains the processing and modeling code for the EduGage
 Dataset. The code discovers raw participant-session folders, builds labeled
 engagement windows, exports preprocessed sensor slices, and runs several
 training/evaluation pipelines and baselines.
