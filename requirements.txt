@@ -1,0 +1,10 @@
+numpy
+pandas
+pyarrow
+scipy
+scikit-learn
+torch
+matplotlib
+optuna
+lightgbm
+neurokit2
