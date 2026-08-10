@@ -5,7 +5,9 @@ import hashlib
 from itertools import combinations
 import json
 import logging
+import os
 from pathlib import Path
+import random
 from typing import Any
 
 import numpy as np
@@ -54,6 +56,12 @@ class ParticipantFold:
     test_indices: np.ndarray
     train_indices: np.ndarray
     test_label_counts: np.ndarray
+
+
+@dataclass(frozen=True)
+class ValidationSplit:
+    fit_indices: np.ndarray
+    validation_indices: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -224,6 +232,59 @@ def _subset_tensorized(data: TensorizedWindowSet, indices: np.ndarray) -> Tensor
         labels_5class=data.labels_5class[indices],
         labels_binary=data.labels_binary[indices],
         meta=data.meta.iloc[indices].reset_index(drop=True),
+    )
+
+
+def _build_stratified_validation_split(
+    data: TensorizedWindowSet,
+    *,
+    validation_fraction: float,
+    seed: int,
+) -> ValidationSplit:
+    """Carve a deterministic, label-stratified validation set from an outer train fold."""
+
+    num_windows = int(len(data.labels_5class))
+    if num_windows < 2:
+        raise ValueError("At least two outer-training windows are required for validation.")
+
+    target_validation_windows = max(
+        1,
+        min(num_windows - 1, int(round(float(validation_fraction) * num_windows))),
+    )
+    all_indices = np.arange(num_windows, dtype=np.int64)
+    labels = np.asarray(data.labels_5class, dtype=np.int64)
+    rng = np.random.default_rng(int(seed))
+    class_ids, class_counts = np.unique(labels, return_counts=True)
+    quotas = class_counts.astype(np.float64) * target_validation_windows / num_windows
+    allocations = np.floor(quotas).astype(int)
+    # Keep at least one fit example for every class that has more than one example.
+    capacities = np.where(class_counts > 1, class_counts - 1, class_counts)
+    allocations = np.minimum(allocations, capacities)
+    tie_breakers = rng.random(len(class_ids))
+
+    while int(allocations.sum()) < target_validation_windows:
+        available = np.flatnonzero(allocations < capacities)
+        if len(available) == 0:
+            break
+        best_position = min(
+            available.tolist(),
+            key=lambda position: (
+                -(float(quotas[position]) - float(allocations[position])),
+                float(tie_breakers[position]),
+            ),
+        )
+        allocations[best_position] += 1
+
+    validation_parts = []
+    for class_id, allocation in zip(class_ids.tolist(), allocations.tolist()):
+        class_indices = all_indices[labels == int(class_id)]
+        validation_parts.append(rng.permutation(class_indices)[: int(allocation)])
+    validation_indices = np.sort(np.concatenate(validation_parts)).astype(np.int64)
+    validation_mask = np.zeros(num_windows, dtype=bool)
+    validation_mask[validation_indices] = True
+    return ValidationSplit(
+        fit_indices=all_indices[~validation_mask],
+        validation_indices=validation_indices,
     )
 
 
@@ -1234,6 +1295,26 @@ def _unwrap_model(model: nn.Module) -> nn.Module:
     return model
 
 
+def _seed_training(seed: int, *, deterministic: bool) -> None:
+    """Seed model initialization and training, including deterministic CUDA settings."""
+
+    normalized_seed = int(seed)
+    if deterministic:
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    random.seed(normalized_seed)
+    np.random.seed(normalized_seed % (2**32))
+    torch.manual_seed(normalized_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(normalized_seed)
+    if hasattr(torch.backends, "cudnn"):
+        torch.backends.cudnn.deterministic = bool(deterministic)
+        torch.backends.cudnn.benchmark = not bool(deterministic)
+    try:
+        torch.use_deterministic_algorithms(bool(deterministic), warn_only=True)
+    except TypeError:
+        torch.use_deterministic_algorithms(bool(deterministic))
+
+
 def _build_training_model(
     *,
     config: RunConfig,
@@ -1370,10 +1451,16 @@ def _train_fold_model(
     *,
     config: RunConfig,
     train_set: TensorizedWindowSet,
+    validation_set: TensorizedWindowSet,
     test_set: TensorizedWindowSet,
     modality_dims: dict[str, int],
     context_dim: int,
-) -> tuple[MultimodalGatedFusionModel, dict[str, float], dict[str, Any]]:
+    fold_seed: int,
+) -> tuple[MultimodalGatedFusionModel, dict[str, Any], dict[str, Any]]:
+    _seed_training(
+        int(fold_seed),
+        deterministic=bool(config.multimodal_train.deterministic_training),
+    )
     device = _resolve_device(config)
     task_mode = str(config.multimodal_train.task_mode)
     model, num_cuda_devices = _build_training_model(
@@ -1398,17 +1485,22 @@ def _train_fold_model(
         int(config.multimodal_train.batch_size),
         max(1, int(len(train_set.labels_5class))),
     )
-    rng = np.random.default_rng(config.seed)
+    rng = np.random.default_rng(int(fold_seed))
 
     last_total = 0.0
     last_bin = 0.0
     last_ord = 0.0
     last_reg = 0.0
     best_epoch = -1
-    best_metric_name = _primary_metric_name(task_mode)
+    best_metric_name = (
+        "validation_binary_macro_f1" if task_mode == "binary" else "validation_class_mae"
+    )
     best_primary_metric = np.inf if task_mode != "binary" else -np.inf
-    best_eval: dict[str, Any] | None = None
+    best_validation_eval: dict[str, Any] | None = None
     best_state: dict[str, torch.Tensor] | None = None
+    epochs_without_improvement = 0
+    epochs_trained = 0
+    early_stopped = False
 
     for epoch in range(int(config.multimodal_train.epochs)):
         model.train()
@@ -1470,9 +1562,10 @@ def _train_fold_model(
             last_ord = float(np.mean(batch_ord_losses))
             last_reg = float(np.mean(batch_reg_losses))
 
-        eval_result = _evaluate_model(
+        epochs_trained = epoch + 1
+        validation_result = _evaluate_model(
             model,
-            test_set,
+            validation_set,
             device=device,
             task_mode=task_mode,
             lambda_binary=float(config.multimodal_train.lambda_binary),
@@ -1481,19 +1574,23 @@ def _train_fold_model(
             ordinal_pos_weight=ordinal_pos_weight,
         )
         ordinal_macro_f1 = (
-            float(eval_result["ordinal_metrics"]["macro_f1"])
-            if eval_result["ordinal_metrics"] is not None
+            float(validation_result["ordinal_metrics"]["macro_f1"])
+            if validation_result["ordinal_metrics"] is not None
             else float("nan")
         )
         ordinal_class_mae = (
-            float(eval_result["ordinal_metrics"]["mae"])
-            if eval_result["ordinal_metrics"] is not None
+            float(validation_result["ordinal_metrics"]["mae"])
+            if validation_result["ordinal_metrics"] is not None
             else float("nan")
         )
-        ordinal_mae = float(eval_result["regression_mae"])
-        current_test_binary_macro_f1 = float(eval_result["binary_metrics"]["binary_macro_f1"])
+        ordinal_mae = float(validation_result["regression_mae"])
+        current_validation_binary_macro_f1 = float(
+            validation_result["binary_metrics"]["binary_macro_f1"]
+        )
         current_primary_metric = (
-            current_test_binary_macro_f1 if task_mode == "binary" else ordinal_mae
+            current_validation_binary_macro_f1
+            if task_mode == "binary"
+            else ordinal_class_mae
         )
         improved = (
             current_primary_metric > best_primary_metric
@@ -1503,8 +1600,9 @@ def _train_fold_model(
         LOGGER.info(
             "Phase E multimodal epoch %s/%s | task=%s | "
             "train_loss=%.4f bin_loss=%.4f ord_loss=%.4f reg_loss=%.4f | "
-            "test_loss=%.4f test_bin_loss=%.4f test_ord_loss=%.4f test_reg_loss=%.4f | "
-            "test_macro_f1=%s test_mae=%s test_class_mae=%s test_bin_macro_f1=%.4f%s",
+            "validation_loss=%.4f validation_bin_loss=%.4f validation_ord_loss=%.4f "
+            "validation_reg_loss=%.4f | validation_macro_f1=%s validation_mae=%s "
+            "validation_class_mae=%s validation_bin_macro_f1=%.4f%s",
             epoch + 1,
             int(config.multimodal_train.epochs),
             task_mode,
@@ -1512,60 +1610,81 @@ def _train_fold_model(
             last_bin,
             last_ord,
             last_reg,
-            float(eval_result["test_loss_total"]),
-            float(eval_result["test_loss_binary"]),
-            float(eval_result["test_loss_ordinal"]),
-            float(eval_result["test_loss_regression"]),
+            float(validation_result["test_loss_total"]),
+            float(validation_result["test_loss_binary"]),
+            float(validation_result["test_loss_ordinal"]),
+            float(validation_result["test_loss_regression"]),
             "n/a" if task_mode == "binary" else f"{ordinal_macro_f1:.4f}",
             "n/a" if task_mode == "binary" else f"{ordinal_mae:.4f}",
             "n/a" if task_mode == "binary" else f"{ordinal_class_mae:.4f}",
-            current_test_binary_macro_f1,
+            current_validation_binary_macro_f1,
             " | new_best" if improved else "",
         )
         if improved:
             best_primary_metric = current_primary_metric
             best_epoch = epoch
-            best_eval = eval_result
+            best_validation_eval = validation_result
             best_state = {
                 key: value.detach().cpu().clone()
                 for key, value in _unwrap_model(model).state_dict().items()
             }
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= int(
+                config.multimodal_train.early_stopping_patience
+            ):
+                early_stopped = True
+                break
 
-    if best_state is None or best_eval is None:
+    if best_state is None or best_validation_eval is None:
         raise RuntimeError("Training completed without producing a best checkpoint.")
 
     _unwrap_model(model).load_state_dict(best_state)
     model.to(device)
+    # The outer test fold is evaluated once, only after validation chose the checkpoint.
+    test_eval = _evaluate_model(
+        model,
+        test_set,
+        device=device,
+        task_mode=task_mode,
+        lambda_binary=float(config.multimodal_train.lambda_binary),
+        lambda_ordinal=float(config.multimodal_train.lambda_ordinal),
+        lambda_regression=float(config.multimodal_train.lambda_regression),
+        ordinal_pos_weight=ordinal_pos_weight,
+    )
     return model, {
         "train_loss_total": last_total,
         "train_loss_binary": last_bin,
         "train_loss_ordinal": last_ord,
         "train_loss_regression": last_reg,
-        "epochs": float(config.multimodal_train.epochs),
+        "epochs": float(epochs_trained),
         "best_epoch": float(best_epoch),
         "best_primary_metric": float(best_primary_metric),
         "best_primary_metric_name": best_metric_name,
+        "checkpoint_selection_source": "validation",
+        "early_stopped": bool(early_stopped),
+        "fold_seed": int(fold_seed),
+        "deterministic_training": bool(config.multimodal_train.deterministic_training),
         "best_test_macro_f1": float(
-            best_eval["ordinal_metrics"]["macro_f1"]
-            if task_mode != "binary" and best_eval["ordinal_metrics"] is not None
+            test_eval["ordinal_metrics"]["macro_f1"]
+            if task_mode != "binary" and test_eval["ordinal_metrics"] is not None
             else np.nan
         ),
-        "best_test_mae": float(best_eval["regression_mae"] if task_mode != "binary" else np.nan),
+        "best_test_mae": float(test_eval["regression_mae"] if task_mode != "binary" else np.nan),
         "best_test_class_mae": float(
-            best_eval["ordinal_metrics"]["mae"]
-            if task_mode != "binary" and best_eval["ordinal_metrics"] is not None
+            test_eval["ordinal_metrics"]["mae"]
+            if task_mode != "binary" and test_eval["ordinal_metrics"] is not None
             else np.nan
         ),
         "best_test_bin_macro_f1": float(
-            best_primary_metric
-            if task_mode == "binary"
-            else best_eval["binary_metrics"]["binary_macro_f1"]
+            test_eval["binary_metrics"]["binary_macro_f1"]
         ),
         "device": str(device),
         "multi_gpu_enabled": bool(isinstance(model, nn.DataParallel)),
         "num_cuda_devices": int(num_cuda_devices),
         "task_mode": task_mode,
-    }, best_eval
+    }, test_eval
 
 
 def run_phase_e_multimodal(
@@ -1618,6 +1737,7 @@ def run_phase_e_multimodal(
     if not bool(config.multimodal_train.use_context):
         data = _disable_context_features(data)
     participants = sorted({int(v) for v in data.meta["participant_id"].tolist()})
+    window_dataset_fingerprint = _hash_dataframe(data.meta)
     folds = _build_participant_folds(
         data,
         config=config,
@@ -1640,14 +1760,30 @@ def run_phase_e_multimodal(
 
     for fold in folds:
         fold_id = int(fold.fold_id)
+        fold_seed = int(config.seed) + fold_id
         test_group_label = ",".join(str(v) for v in fold.test_participants)
         test_participant_value: float | int = (
             int(fold.test_participants[0]) if len(fold.test_participants) == 1 else np.nan
         )
-        train_set_raw = _subset_tensorized(data, fold.train_indices)
+        outer_train_set_raw = _subset_tensorized(data, fold.train_indices)
         test_set_raw = _subset_tensorized(data, fold.test_indices)
+        validation_split = _build_stratified_validation_split(
+            outer_train_set_raw,
+            validation_fraction=float(config.multimodal_train.validation_fraction),
+            seed=fold_seed,
+        )
+        train_set_raw = _subset_tensorized(
+            outer_train_set_raw, validation_split.fit_indices
+        )
+        validation_set_raw = _subset_tensorized(
+            outer_train_set_raw, validation_split.validation_indices
+        )
+        # Fit normalization on the inner fit split only; validation and test remain held out.
         normalization_stats = _fit_modality_normalization(train_set_raw)
         train_set = _apply_modality_normalization(train_set_raw, normalization_stats)
+        validation_set = _apply_modality_normalization(
+            validation_set_raw, normalization_stats
+        )
         test_set = _apply_modality_normalization(test_set_raw, normalization_stats)
 
         split_rows.append(
@@ -1667,18 +1803,36 @@ def run_phase_e_multimodal(
                     [class_id + 1 for class_id, count in enumerate(fold.test_label_counts.tolist()) if int(count) > 0]
                 ),
                 "train_fold_normalized": True,
-                "num_train_windows": int(len(fold.train_indices)),
+                "normalization_fit_source": "inner_train",
+                "checkpoint_selection_source": "validation",
+                "validation_fraction": float(config.multimodal_train.validation_fraction),
+                "fold_seed": fold_seed,
+                "window_dataset_fingerprint": window_dataset_fingerprint,
+                "train_window_ids": json.dumps(
+                    train_set_raw.meta["window_id"].astype(str).tolist()
+                ),
+                "validation_window_ids": json.dumps(
+                    validation_set_raw.meta["window_id"].astype(str).tolist()
+                ),
+                "test_window_ids": json.dumps(
+                    test_set_raw.meta["window_id"].astype(str).tolist()
+                ),
+                "num_outer_train_windows": int(len(fold.train_indices)),
+                "num_train_windows": int(len(train_set.labels_5class)),
+                "num_validation_windows": int(len(validation_set.labels_5class)),
                 "num_test_windows": int(len(fold.test_indices)),
             }
         )
 
         LOGGER.info(
-            "Phase E multimodal fold %s/%s | split=%s | test_group=%s | train_windows=%s | test_windows=%s | test_labels=%s",
+            "Phase E multimodal fold %s/%s | split=%s | test_group=%s | "
+            "train_windows=%s | validation_windows=%s | test_windows=%s | test_labels=%s",
             fold_id + 1,
             len(folds),
             split_mode,
             test_group_label,
-            int(len(fold.train_indices)),
+            int(len(train_set.labels_5class)),
+            int(len(validation_set.labels_5class)),
             int(len(fold.test_indices)),
             ",".join(str(class_id + 1) for class_id, count in enumerate(fold.test_label_counts.tolist()) if int(count) > 0),
         )
@@ -1686,9 +1840,11 @@ def run_phase_e_multimodal(
         model, train_stats, eval_result = _train_fold_model(
             config=config,
             train_set=train_set,
+            validation_set=validation_set,
             test_set=test_set,
             modality_dims=modeled_dims,
             context_dim=context_dim,
+            fold_seed=fold_seed,
         )
         baseline_results = {
             "random_train_distribution": _evaluate_random_baseline(
@@ -2260,10 +2416,15 @@ def run_phase_e_multimodal(
         "num_report_predictions": int(len(report_predictions_df)),
         "num_baseline_predictions": int(len(baseline_predictions_df)),
         "participants": participants,
+        "window_dataset_fingerprint": window_dataset_fingerprint,
         "modeled_modalities": list(MODELED_MODALITIES),
         "active_modeled_modalities": list(active_modalities),
         "multimodal_train": {
             "task_mode": task_mode,
+            "seed": int(config.seed),
+            "deterministic_training": bool(
+                config.multimodal_train.deterministic_training
+            ),
             "split_mode": split_mode,
             "num_folds": int(config.multimodal_train.num_folds),
             "participant_folds": [list(fold) for fold in config.multimodal_train.participant_folds],
@@ -2277,7 +2438,14 @@ def run_phase_e_multimodal(
             "target_points": int(config.multimodal_train.target_points),
             "use_native_frequency": bool(config.multimodal_train.use_native_frequency),
             "epochs": int(config.multimodal_train.epochs),
+            "validation_fraction": float(config.multimodal_train.validation_fraction),
+            "early_stopping_patience": int(
+                config.multimodal_train.early_stopping_patience
+            ),
             "batch_size": int(config.multimodal_train.batch_size),
+            "modality_dropout_prob": float(
+                config.multimodal_train.modality_dropout_prob
+            ),
             "learning_rate": float(config.multimodal_train.learning_rate),
             "weight_decay": float(config.multimodal_train.weight_decay),
             "lambda_binary": float(config.multimodal_train.lambda_binary),
@@ -2327,6 +2495,7 @@ def run_phase_e_multimodal(
         "num_prediction_rows": int(len(predictions_df)),
         "num_report_rows": int(len(report_predictions_df)),
         "participants": participants,
+        "window_dataset_fingerprint": window_dataset_fingerprint,
         "split_mode": split_mode,
         "num_folds": int(len(folds)),
     }

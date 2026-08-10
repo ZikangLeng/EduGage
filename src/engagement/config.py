@@ -98,6 +98,9 @@ class MultimodalTrainConfig:
     )
     target_points: int = 192
     epochs: int = 20
+    validation_fraction: float = 0.2
+    early_stopping_patience: int = 8
+    deterministic_training: bool = True
     batch_size: int = 16
     modality_dropout_prob: float = 0.15
     complete_windows_only: bool = False
@@ -376,6 +379,12 @@ def validate_core_config(config: RunConfig) -> None:
                 seen_participants.add(participant_id)
     if config.multimodal_train.epochs <= 0:
         raise ValueError("multimodal_train.epochs must be positive.")
+    if not 0.0 < config.multimodal_train.validation_fraction < 1.0:
+        raise ValueError("multimodal_train.validation_fraction must be in (0, 1).")
+    if config.multimodal_train.early_stopping_patience <= 0:
+        raise ValueError("multimodal_train.early_stopping_patience must be positive.")
+    if not isinstance(config.multimodal_train.deterministic_training, bool):
+        raise ValueError("multimodal_train.deterministic_training must be a boolean.")
     if config.multimodal_train.batch_size <= 0:
         raise ValueError("multimodal_train.batch_size must be positive.")
     if config.multimodal_train.learning_rate <= 0:

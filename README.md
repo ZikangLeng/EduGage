@@ -175,6 +175,33 @@ python scripts/run_pipeline.py \
 
 Outputs are written under `artifacts/optuna/<study_name>/`.
 
+For each outer participant fold, 20% of the outer-training windows are held out as
+a label-stratified validation split. The epoch/checkpoint is selected by validation
+Class MAE (validation binary Macro-F1 in binary-only mode), and the selected
+checkpoint is evaluated on the outer test fold once. Optuna then ranks completed
+ordinal trials by mean outer-test Class MAE. This final test-based trial selection is
+post-hoc and optimistically biased; it is provided for reproducing the reported
+selection procedure, not as an unbiased estimate of model selection performance.
+
+To rerun the fixed configuration that previously produced a mean four-fold test
+Class MAE of approximately 0.91:
+
+```bash
+python scripts/run_pipeline.py \
+  --stage train_eval \
+  --run-id reproduce_class_mae_091 \
+  --multimodal-reproduction-preset class_mae_091
+```
+
+The preset uses seed 42, deterministic single-GPU training, fold seeds 42--45,
+40 maximum epochs, patience 8, a 20% stratified validation split, all 11
+modalities on complete windows, learning rate 0.0009009827, weight decay
+0.0001493374, batch size 16, embedding dimension 32, fusion dimension 256,
+ordinal-loss weight 4, regression-loss weight 1, and modality dropout fixed at
+zero. The generated split artifact records the exact training, validation, and
+test window IDs plus a window-dataset fingerprint. Exact equality can still depend on
+using the same data, PyTorch/CUDA versions, and GPU model.
+
 ### Trial Matrices
 
 Run a fixed list of multimodal configurations:

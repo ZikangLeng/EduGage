@@ -44,6 +44,12 @@ from engagement.trial_matrix import run_trial_matrix, run_trial_matrix_optuna  #
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the V1 engagement pipeline.")
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Global random seed for data splitting, training, and Optuna.",
+    )
+    parser.add_argument(
         "--window-generation-mode",
         choices=["interval_sliding", "event_trailing"],
         default=None,
@@ -180,6 +186,24 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Optional override for multimodal_train.epochs.",
+    )
+    parser.add_argument(
+        "--multimodal-reproduction-preset",
+        choices=["class_mae_091"],
+        default=None,
+        help="Apply the fixed configuration used for the approximately 0.91 test Class MAE run.",
+    )
+    parser.add_argument(
+        "--multimodal-validation-fraction",
+        type=float,
+        default=None,
+        help="Fraction of each outer training fold reserved for checkpoint selection.",
+    )
+    parser.add_argument(
+        "--multimodal-early-stopping-patience",
+        type=int,
+        default=None,
+        help="Stop after this many epochs without improved validation performance.",
     )
     parser.add_argument(
         "--multimodal-batch-size",
@@ -377,10 +401,39 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _apply_multimodal_reproduction_preset(config, preset: str) -> None:
+    if preset != "class_mae_091":
+        raise ValueError(f"Unsupported multimodal reproduction preset: {preset}")
+
+    config.seed = 42
+    train = config.multimodal_train
+    train.use_native_frequency = True
+    train.use_multi_gpu = False
+    train.task_mode = "ordinal"
+    train.split_mode = "fixed_groups"
+    train.epochs = 40
+    train.validation_fraction = 0.2
+    train.early_stopping_patience = 8
+    train.deterministic_training = True
+    train.batch_size = 16
+    train.modality_dropout_prob = 0.0
+    train.complete_windows_only = True
+    train.complete_windows_reference = "all"
+    train.use_context = True
+    train.selected_modeled_modalities = ()
+    train.learning_rate = 0.0009009827
+    train.weight_decay = 0.0001493374
+    train.lambda_ordinal = 4.0
+    train.lambda_regression = 1.0
+    train.embedding_dim = 32
+    train.fusion_hidden_dim = 256
+
+
 def _print_config_and_models(config) -> None:
     baseline_cfg = config.baseline.consensus_zero_shot
     payload = {
         "run_id": config.run_id,
+        "seed": config.seed,
         "data_root": str(config.data_root),
         "artifact_root": str(config.artifact_root),
         "window_size_sec": config.window_size_sec,
@@ -401,6 +454,9 @@ def _print_config_and_models(config) -> None:
             "participant_folds": [list(fold) for fold in config.multimodal_train.participant_folds],
             "target_points": config.multimodal_train.target_points,
             "epochs": config.multimodal_train.epochs,
+            "validation_fraction": config.multimodal_train.validation_fraction,
+            "early_stopping_patience": config.multimodal_train.early_stopping_patience,
+            "deterministic_training": config.multimodal_train.deterministic_training,
             "batch_size": config.multimodal_train.batch_size,
             "modality_dropout_prob": config.multimodal_train.modality_dropout_prob,
             "complete_windows_only": config.multimodal_train.complete_windows_only,
@@ -455,6 +511,12 @@ def main() -> int:
         )
 
     config = build_default_config(repo_root=REPO_ROOT)
+    if args.multimodal_reproduction_preset:
+        _apply_multimodal_reproduction_preset(
+            config, str(args.multimodal_reproduction_preset)
+        )
+    if args.seed is not None:
+        config.seed = int(args.seed)
     if args.run_id:
         config.run_id = args.run_id
     if args.allow_relative_time_fallback:
@@ -495,6 +557,14 @@ def main() -> int:
         config.multimodal_train.num_folds = int(args.multimodal_num_folds)
     if args.multimodal_epochs is not None:
         config.multimodal_train.epochs = int(args.multimodal_epochs)
+    if args.multimodal_validation_fraction is not None:
+        config.multimodal_train.validation_fraction = float(
+            args.multimodal_validation_fraction
+        )
+    if args.multimodal_early_stopping_patience is not None:
+        config.multimodal_train.early_stopping_patience = int(
+            args.multimodal_early_stopping_patience
+        )
     if args.multimodal_batch_size is not None:
         config.multimodal_train.batch_size = int(args.multimodal_batch_size)
     if args.multimodal_modality_dropout_prob is not None:
