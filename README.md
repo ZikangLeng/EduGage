@@ -175,6 +175,14 @@ python scripts/run_pipeline.py \
 
 Outputs are written under `artifacts/optuna/<study_name>/`.
 
+For each outer participant fold, 20% of the outer-training windows are held out as
+a label-stratified validation split. The epoch/checkpoint is selected by validation
+Class MAE (validation binary Macro-F1 in binary-only mode), and the selected
+checkpoint is evaluated on the outer test fold once. Optuna then ranks completed
+ordinal trials by mean outer-test Class MAE. This final test-based trial selection is
+post-hoc and optimistically biased; it is provided for reproducing the reported
+selection procedure, not as an unbiased estimate of model selection performance.
+
 ### Trial Matrices
 
 Run a fixed list of multimodal configurations:

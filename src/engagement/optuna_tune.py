@@ -109,20 +109,30 @@ def _read_metric_summaries(
     if task_mode == "binary":
         mean_fold_primary = mean_fold_binary_macro_f1
         mean_fold_mae = float("nan")
+        mean_fold_class_mae = float("nan")
         overall_primary = overall_binary_macro_f1
     else:
-        mean_fold_primary = float(fold_metrics_df["mae"].mean())
+        # Epochs are validation-selected inside each fold; Optuna deliberately ranks
+        # the completed trials by their resulting outer-test Class MAE.
+        mean_fold_primary = float(fold_metrics_df["class_mae"].mean())
         mean_fold_mae = float(fold_metrics_df["mae"].mean())
-        overall_primary = float(overall_metrics_df.iloc[0]["mae"])
+        mean_fold_class_mae = mean_fold_primary
+        overall_primary = float(overall_metrics_df.iloc[0]["class_mae"])
 
     return {
         "mean_fold_primary_metric": mean_fold_primary,
         "mean_fold_mae": mean_fold_mae,
+        "mean_fold_class_mae": mean_fold_class_mae,
         "mean_fold_binary_macro_f1": mean_fold_binary_macro_f1,
         "overall_primary_metric": overall_primary,
         "overall_binary_macro_f1": overall_binary_macro_f1,
         "overall_mae": (
             float(overall_metrics_df.iloc[0]["mae"])
+            if task_mode != "binary"
+            else float("nan")
+        ),
+        "overall_class_mae": (
+            float(overall_metrics_df.iloc[0]["class_mae"])
             if task_mode != "binary"
             else float("nan")
         ),
@@ -265,7 +275,7 @@ def _summarize_study(
     primary_metric_name = (
         "mean_fold_binary_macro_f1"
         if task_mode == "binary"
-        else "mean_fold_mae"
+        else "mean_fold_test_class_mae"
     )
     num_trials_completed = int(
         sum(1 for trial in study.trials if str(trial.state) == "TrialState.COMPLETE")
@@ -279,11 +289,20 @@ def _summarize_study(
         "num_trials_total": int(len(study.trials)),
         "num_trials_completed": num_trials_completed,
         "primary_metric_name": primary_metric_name,
+        "checkpoint_selection_source": "validation",
+        "optuna_trial_selection_source": "outer_test",
+        "posthoc_test_selection_warning": (
+            "The reported best trial is selected by outer-test performance and is therefore "
+            "optimistically biased; use a separate untouched test set for confirmatory claims."
+        ),
         "best_trial_number": int(best_trial.number),
         "best_value": float(best_trial.value),
         "best_params": dict(best_trial.params),
         "best_run_id": str(best_trial.user_attrs.get("run_id", "")),
         "best_mean_fold_mae": float(best_trial.user_attrs.get("mean_fold_mae", np.nan)),
+        "best_mean_fold_class_mae": float(
+            best_trial.user_attrs.get("mean_fold_class_mae", np.nan)
+        ),
         "best_mean_fold_binary_macro_f1": float(
             best_trial.user_attrs.get("mean_fold_binary_macro_f1", np.nan)
         ),
@@ -334,7 +353,7 @@ def run_optuna_multimodal_study(
     primary_metric_name = (
         "mean_fold_binary_macro_f1"
         if task_mode == "binary"
-        else "mean_fold_mae"
+        else "mean_fold_test_class_mae"
     )
 
     resolved_sampler_seed = int(config.seed if sampler_seed is None else sampler_seed)
@@ -376,6 +395,9 @@ def run_optuna_multimodal_study(
         )
         trial.set_user_attr("mean_fold_mae", metrics["mean_fold_mae"])
         trial.set_user_attr(
+            "mean_fold_class_mae", metrics["mean_fold_class_mae"]
+        )
+        trial.set_user_attr(
             "mean_fold_binary_macro_f1", metrics["mean_fold_binary_macro_f1"]
         )
         trial.set_user_attr(
@@ -385,6 +407,9 @@ def run_optuna_multimodal_study(
             "overall_binary_macro_f1", metrics["overall_binary_macro_f1"]
         )
         trial.set_user_attr("overall_mae", metrics["overall_mae"])
+        trial.set_user_attr("overall_class_mae", metrics["overall_class_mae"])
+        trial.set_user_attr("checkpoint_selection_source", "validation")
+        trial.set_user_attr("optuna_trial_selection_source", "outer_test")
         trial.set_user_attr("summary_path", str(outputs["summary"]))
 
         LOGGER.info(

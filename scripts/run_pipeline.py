@@ -182,6 +182,18 @@ def _parse_args() -> argparse.Namespace:
         help="Optional override for multimodal_train.epochs.",
     )
     parser.add_argument(
+        "--multimodal-validation-fraction",
+        type=float,
+        default=None,
+        help="Fraction of each outer training fold reserved for checkpoint selection.",
+    )
+    parser.add_argument(
+        "--multimodal-early-stopping-patience",
+        type=int,
+        default=None,
+        help="Stop after this many epochs without improved validation performance.",
+    )
+    parser.add_argument(
         "--multimodal-batch-size",
         type=int,
         default=None,
@@ -401,6 +413,8 @@ def _print_config_and_models(config) -> None:
             "participant_folds": [list(fold) for fold in config.multimodal_train.participant_folds],
             "target_points": config.multimodal_train.target_points,
             "epochs": config.multimodal_train.epochs,
+            "validation_fraction": config.multimodal_train.validation_fraction,
+            "early_stopping_patience": config.multimodal_train.early_stopping_patience,
             "batch_size": config.multimodal_train.batch_size,
             "modality_dropout_prob": config.multimodal_train.modality_dropout_prob,
             "complete_windows_only": config.multimodal_train.complete_windows_only,
@@ -495,6 +509,14 @@ def main() -> int:
         config.multimodal_train.num_folds = int(args.multimodal_num_folds)
     if args.multimodal_epochs is not None:
         config.multimodal_train.epochs = int(args.multimodal_epochs)
+    if args.multimodal_validation_fraction is not None:
+        config.multimodal_train.validation_fraction = float(
+            args.multimodal_validation_fraction
+        )
+    if args.multimodal_early_stopping_patience is not None:
+        config.multimodal_train.early_stopping_patience = int(
+            args.multimodal_early_stopping_patience
+        )
     if args.multimodal_batch_size is not None:
         config.multimodal_train.batch_size = int(args.multimodal_batch_size)
     if args.multimodal_modality_dropout_prob is not None:
