@@ -5,7 +5,9 @@ import hashlib
 from itertools import combinations
 import json
 import logging
+import os
 from pathlib import Path
+import random
 from typing import Any
 
 import numpy as np
@@ -1293,6 +1295,26 @@ def _unwrap_model(model: nn.Module) -> nn.Module:
     return model
 
 
+def _seed_training(seed: int, *, deterministic: bool) -> None:
+    """Seed model initialization and training, including deterministic CUDA settings."""
+
+    normalized_seed = int(seed)
+    if deterministic:
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    random.seed(normalized_seed)
+    np.random.seed(normalized_seed % (2**32))
+    torch.manual_seed(normalized_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(normalized_seed)
+    if hasattr(torch.backends, "cudnn"):
+        torch.backends.cudnn.deterministic = bool(deterministic)
+        torch.backends.cudnn.benchmark = not bool(deterministic)
+    try:
+        torch.use_deterministic_algorithms(bool(deterministic), warn_only=True)
+    except TypeError:
+        torch.use_deterministic_algorithms(bool(deterministic))
+
+
 def _build_training_model(
     *,
     config: RunConfig,
@@ -1433,7 +1455,12 @@ def _train_fold_model(
     test_set: TensorizedWindowSet,
     modality_dims: dict[str, int],
     context_dim: int,
+    fold_seed: int,
 ) -> tuple[MultimodalGatedFusionModel, dict[str, Any], dict[str, Any]]:
+    _seed_training(
+        int(fold_seed),
+        deterministic=bool(config.multimodal_train.deterministic_training),
+    )
     device = _resolve_device(config)
     task_mode = str(config.multimodal_train.task_mode)
     model, num_cuda_devices = _build_training_model(
@@ -1458,7 +1485,7 @@ def _train_fold_model(
         int(config.multimodal_train.batch_size),
         max(1, int(len(train_set.labels_5class))),
     )
-    rng = np.random.default_rng(config.seed)
+    rng = np.random.default_rng(int(fold_seed))
 
     last_total = 0.0
     last_bin = 0.0
@@ -1637,6 +1664,8 @@ def _train_fold_model(
         "best_primary_metric_name": best_metric_name,
         "checkpoint_selection_source": "validation",
         "early_stopped": bool(early_stopped),
+        "fold_seed": int(fold_seed),
+        "deterministic_training": bool(config.multimodal_train.deterministic_training),
         "best_test_macro_f1": float(
             test_eval["ordinal_metrics"]["macro_f1"]
             if task_mode != "binary" and test_eval["ordinal_metrics"] is not None
@@ -1708,6 +1737,7 @@ def run_phase_e_multimodal(
     if not bool(config.multimodal_train.use_context):
         data = _disable_context_features(data)
     participants = sorted({int(v) for v in data.meta["participant_id"].tolist()})
+    window_dataset_fingerprint = _hash_dataframe(data.meta)
     folds = _build_participant_folds(
         data,
         config=config,
@@ -1730,6 +1760,7 @@ def run_phase_e_multimodal(
 
     for fold in folds:
         fold_id = int(fold.fold_id)
+        fold_seed = int(config.seed) + fold_id
         test_group_label = ",".join(str(v) for v in fold.test_participants)
         test_participant_value: float | int = (
             int(fold.test_participants[0]) if len(fold.test_participants) == 1 else np.nan
@@ -1739,7 +1770,7 @@ def run_phase_e_multimodal(
         validation_split = _build_stratified_validation_split(
             outer_train_set_raw,
             validation_fraction=float(config.multimodal_train.validation_fraction),
-            seed=int(config.seed) + fold_id,
+            seed=fold_seed,
         )
         train_set_raw = _subset_tensorized(
             outer_train_set_raw, validation_split.fit_indices
@@ -1775,6 +1806,17 @@ def run_phase_e_multimodal(
                 "normalization_fit_source": "inner_train",
                 "checkpoint_selection_source": "validation",
                 "validation_fraction": float(config.multimodal_train.validation_fraction),
+                "fold_seed": fold_seed,
+                "window_dataset_fingerprint": window_dataset_fingerprint,
+                "train_window_ids": json.dumps(
+                    train_set_raw.meta["window_id"].astype(str).tolist()
+                ),
+                "validation_window_ids": json.dumps(
+                    validation_set_raw.meta["window_id"].astype(str).tolist()
+                ),
+                "test_window_ids": json.dumps(
+                    test_set_raw.meta["window_id"].astype(str).tolist()
+                ),
                 "num_outer_train_windows": int(len(fold.train_indices)),
                 "num_train_windows": int(len(train_set.labels_5class)),
                 "num_validation_windows": int(len(validation_set.labels_5class)),
@@ -1802,6 +1844,7 @@ def run_phase_e_multimodal(
             test_set=test_set,
             modality_dims=modeled_dims,
             context_dim=context_dim,
+            fold_seed=fold_seed,
         )
         baseline_results = {
             "random_train_distribution": _evaluate_random_baseline(
@@ -2373,10 +2416,15 @@ def run_phase_e_multimodal(
         "num_report_predictions": int(len(report_predictions_df)),
         "num_baseline_predictions": int(len(baseline_predictions_df)),
         "participants": participants,
+        "window_dataset_fingerprint": window_dataset_fingerprint,
         "modeled_modalities": list(MODELED_MODALITIES),
         "active_modeled_modalities": list(active_modalities),
         "multimodal_train": {
             "task_mode": task_mode,
+            "seed": int(config.seed),
+            "deterministic_training": bool(
+                config.multimodal_train.deterministic_training
+            ),
             "split_mode": split_mode,
             "num_folds": int(config.multimodal_train.num_folds),
             "participant_folds": [list(fold) for fold in config.multimodal_train.participant_folds],
@@ -2390,7 +2438,14 @@ def run_phase_e_multimodal(
             "target_points": int(config.multimodal_train.target_points),
             "use_native_frequency": bool(config.multimodal_train.use_native_frequency),
             "epochs": int(config.multimodal_train.epochs),
+            "validation_fraction": float(config.multimodal_train.validation_fraction),
+            "early_stopping_patience": int(
+                config.multimodal_train.early_stopping_patience
+            ),
             "batch_size": int(config.multimodal_train.batch_size),
+            "modality_dropout_prob": float(
+                config.multimodal_train.modality_dropout_prob
+            ),
             "learning_rate": float(config.multimodal_train.learning_rate),
             "weight_decay": float(config.multimodal_train.weight_decay),
             "lambda_binary": float(config.multimodal_train.lambda_binary),
@@ -2440,6 +2495,7 @@ def run_phase_e_multimodal(
         "num_prediction_rows": int(len(predictions_df)),
         "num_report_rows": int(len(report_predictions_df)),
         "participants": participants,
+        "window_dataset_fingerprint": window_dataset_fingerprint,
         "split_mode": split_mode,
         "num_folds": int(len(folds)),
     }

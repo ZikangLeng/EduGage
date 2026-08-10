@@ -25,7 +25,8 @@ DEFAULT_SEARCH_SPACE = {
     "weight_decay": {"low": 1e-6, "high": 1e-3, "log": True},
     "batch_size": [8, 16, 32],
     "embedding_dim": [32, 64, 128],
-    "fusion_hidden_dim": [64, 96, 128, 192],
+    "fusion_hidden_dim": [64, 96, 128, 192, 256],
+    "lambda_ordinal": [1.0, 2.0, 4.0],
 }
 
 
@@ -74,7 +75,10 @@ def _apply_trial_hyperparameters(trial: Any, config: RunConfig) -> None:
         trial.suggest_categorical("embedding_dim", [32, 64, 128])
     )
     config.multimodal_train.fusion_hidden_dim = int(
-        trial.suggest_categorical("fusion_hidden_dim", [64, 96, 128, 192])
+        trial.suggest_categorical("fusion_hidden_dim", [64, 96, 128, 192, 256])
+    )
+    config.multimodal_train.lambda_ordinal = float(
+        trial.suggest_categorical("lambda_ordinal", [1.0, 2.0, 4.0])
     )
 
 
