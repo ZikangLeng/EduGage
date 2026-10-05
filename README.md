@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://arxiv.org/abs/2605.01238"><img src="https://img.shields.io/badge/Paper-arXiv-B31B1B?style=for-the-badge" alt="Read the paper on arXiv" /></a>
-  <a href="https://figshare.com/s/cc3a50e1f3724f7ed5f4"><img src="https://img.shields.io/badge/Dataset-Figshare-1F7A8C?style=for-the-badge" alt="Access the dataset on Figshare" /></a>
+  <a href="https://doi.org/10.6084/m9.figshare.32145994"><img src="https://img.shields.io/badge/Dataset-Figshare-1F7A8C?style=for-the-badge" alt="Access the dataset on Figshare" /></a>
 </p>
 
 ## About EduGage
@@ -20,7 +20,7 @@ contains the processing and modeling code.
 The code discovers raw participant-session folders, builds labeled engagement
 windows, exports preprocessed sensor slices, and runs training/evaluation
 pipelines and baselines. The raw **EduGage Dataset** (3.05 GB) is accessible
-through the [Figshare share link](https://figshare.com/s/cc3a50e1f3724f7ed5f4).
+through the [public Figshare dataset page](https://doi.org/10.6084/m9.figshare.32145994).
 It contains one folder per participant session; the files are raw collection
 outputs, not cleaned/aligned/windowed preprocessing products.
 
@@ -46,8 +46,8 @@ python -m pip install -r requirements.txt
 
 ## 2. Download The Raw Data
 
-1. Open the Figshare private share link:
-   <https://figshare.com/s/cc3a50e1f3724f7ed5f4>
+1. Open the public Figshare dataset page:
+   <https://doi.org/10.6084/m9.figshare.32145994>
 2. Click **Download all**.
 3. Extract the downloaded archive.
 4. Put the extracted participant folders under `data/` in this repository.
