@@ -171,27 +171,6 @@ python scripts/run_pipeline.py \
   --optuna-trials 20
 ```
 
-### Trial Matrices
-
-Run a fixed list of multimodal configurations:
-
-```bash
-python scripts/run_pipeline.py \
-  --stage trial_matrix \
-  --trial-matrix-config configs/trial_matrices/example_full_complete_trials.json \
-  --log-level INFO
-```
-
-Run Optuna for each trial-matrix subset:
-
-```bash
-python scripts/run_pipeline.py \
-  --stage trial_matrix_optuna \
-  --trial-matrix-config configs/trial_matrices/example_subset_optuna_trials.json \
-  --trial-matrix-optuna-trials 24 \
-  --log-level INFO
-```
-
 ## 6. Baselines
 
 All baseline outputs are generated artifacts. Keep them outside Git or under
