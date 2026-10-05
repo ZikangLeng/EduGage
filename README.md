@@ -4,18 +4,25 @@
 
 <h1 align="center">EduGage</h1>
 
-This repository contains the processing and modeling code for the EduGage
-Dataset. The code discovers raw participant-session folders, builds labeled
-engagement windows, exports preprocessed sensor slices, and runs several
-training/evaluation pipelines and baselines.
+<p align="center">
+  <a href="https://arxiv.org/abs/2605.01238"><img src="https://img.shields.io/badge/Paper-arXiv-B31B1B?style=for-the-badge" alt="Read the paper on arXiv" /></a>
+  <a href="https://figshare.com/s/cc3a50e1f3724f7ed5f4"><img src="https://img.shields.io/badge/Dataset-Figshare-1F7A8C?style=for-the-badge" alt="Access the dataset on Figshare" /></a>
+</p>
 
-The public raw dataset is hosted on Figshare:
+## About EduGage
 
-<https://figshare.com/s/cc3a50e1f3724f7ed5f4>
+**EduGage** is a multimodal dataset and benchmark for assessing momentary
+engagement during self-guided video learning. The paper was **accepted to
+[IMWUT](https://dl.acm.org/journal/imwut) in 2026**. A public
+[preprint](https://arxiv.org/abs/2605.01238) is available, and this repository
+contains the processing and modeling code.
 
-The Figshare item is titled **EduGage Dataset**. It is a 3.05 GB raw dataset
-with one folder per participant session. The files are raw collection outputs,
-not cleaned/aligned/windowed preprocessing products.
+The code discovers raw participant-session folders, builds labeled engagement
+windows, exports preprocessed sensor slices, and runs training/evaluation
+pipelines and baselines. The raw **EduGage Dataset** (3.05 GB) is accessible
+through the [Figshare share link](https://figshare.com/s/cc3a50e1f3724f7ed5f4).
+It contains one folder per participant session; the files are raw collection
+outputs, not cleaned/aligned/windowed preprocessing products.
 
 ## 1. Set Up Python
 
