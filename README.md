@@ -171,43 +171,6 @@ python scripts/run_pipeline.py \
   --optuna-trials 20
 ```
 
-Parallel GPU workers:
-
-```bash
-python scripts/run_pipeline.py \
-  --stage tune_optuna_parallel \
-  --log-level INFO \
-  --multimodal-task-mode ordinal \
-  --multimodal-split-mode fixed_groups \
-  --optuna-trials 24 \
-  --optuna-workers-per-gpu 2 \
-  --optuna-gpus 0,1
-```
-
-Outputs are written under `artifacts/optuna/<study_name>/`.
-
-For each outer participant fold, 20% of the outer-training windows are held out as
-a label-stratified validation split. The epoch/checkpoint is selected by validation
-Class MAE (validation binary Macro-F1 in binary-only mode), and the selected
-checkpoint is evaluated on the outer test fold once. 
-
-To rerun the fixed configuration that previously produced a mean four-fold test
-Class MAE of approximately 0.91:
-
-```bash
-python scripts/run_pipeline.py \
-  --stage train_eval \
-  --run-id reproduce_class_mae_091 \
-  --multimodal-reproduction-preset class_mae_091
-```
-
-The preset uses seed 42, deterministic single-GPU training, fold seeds 42--45,
-40 maximum epochs, patience 8, a 20% stratified validation split, all 11
-modalities on complete windows, learning rate 0.0009009827, weight decay
-0.0001493374, batch size 16, embedding dimension 32, fusion dimension 256,
-ordinal-loss weight 4, regression-loss weight 1. Exact equality can still depend on
-using the same PyTorch/CUDA versions, and GPU model.
-
 ### Trial Matrices
 
 Run a fixed list of multimodal configurations:
