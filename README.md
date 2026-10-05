@@ -1,6 +1,8 @@
-<img width="220" alt="edugage_logo" src="https://github.com/user-attachments/assets/547b5f1b-b886-4f72-b19e-e9defcc27612" />
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/547b5f1b-b886-4f72-b19e-e9defcc27612" alt="EduGage logo" width="140" />
+</p>
 
-# EduGage
+<h1 align="center">EduGage</h1>
 
 This repository contains the processing and modeling code for the EduGage
 Dataset. The code discovers raw participant-session folders, builds labeled
