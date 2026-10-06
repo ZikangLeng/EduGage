@@ -19,9 +19,6 @@ The public dataset is available at:
 - `eSense/`: eSense IMU notebook and requirements.
 - `T-Ring/`: Notes for the Android-side T-Ring collection/export used for the raw `.bin` files.
 
-OmniBuds code is not included because OmniBuds data are not part of the public
-EduGage Figshare release.
-
 ## Configuration
 
 `config.json` is a sanitized example configuration used by the shared helpers
