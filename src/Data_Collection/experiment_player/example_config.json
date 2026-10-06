@@ -1,0 +1,26 @@
+{
+  "participant_id": "P001",
+  "session_id": "S001",
+  "allow_no_audio_fallback": true,
+  "require_vlc_backend": true,
+  "flash_duration_sec": 5.0,
+  "log_hz": 10.0,
+  "window": {
+    "fullscr": false,
+    "screen": 0
+  },
+  "tcp": {
+    "host": "127.0.0.1",
+    "port": 5001,
+    "timeout_sec": 0.25,
+    "message_template": "TRIGGER|uid={video_uid}|ts={trigger_ts:.3f}"
+  },
+  "output": {
+    "csv_path": "logs/engagement_log.csv"
+  },
+  "video_catalog_path": "video_catalog.json",
+  "video_uids": [
+    "healthcare",
+    "paleoclimate"
+  ]
+}

@@ -1,0 +1,145 @@
+{
+  "videos_by_uid": {
+    "paleoclimate": {
+      "path": "../videos/Environmental_Science/MIT 12.340x Global Warming (2-3) [2]/Faint_Young_Sun_Paradox_Paleoclimate_9.mp4",
+      "trigger_timestamps_sec": [
+        57.0,
+        116.0,
+        176.0,
+        242.0,
+        300.0,
+        359.0,
+        420.0,
+        480.0,
+        530.0,
+        580.0
+      ]
+    },
+    "radiative_transfer": {
+      "path": "../videos/Environmental_Science/MIT 12.340x Global Warming (2-3) [2]/Radiative_Transfer_Basics_13.mp4",
+      "trigger_timestamps_sec": [
+        59.0,
+        133.0,
+        177.0,
+        240.0,
+        301.0,
+        363.0,
+        426.0,
+        485.0,
+        537.0,
+        600.0,
+        660.0,
+        731.0,
+        776.0,
+        837.0
+      ]
+    },
+    "healthcare": {
+      "path": "../videos/Business/MIT 15.482x Healthcare Finance (3-4) [1]/2_Maximizing_Shareholder_Wealth_NPV_Cash_Flow_9.mp4",
+      "trigger_timestamps_sec": [
+        57.0,
+        108.0,
+        168.0,
+        233.0,
+        282.0,
+        345.0,
+        402.0,
+        477.0,
+        537.0,
+        581.0
+      ]
+    },
+    "supply_chain_scalability": {
+      "path": "../videos/Business/MIT CITE101x Tech Eval Glob Dev (3-4) [1]/3_Supply_Chain_Scalability_10.mp4",
+      "trigger_timestamps_sec": [
+        57.0,
+        118.0,
+        182.0,
+        238.0,
+        297.0,
+        357.0,
+        421.0,
+        482.0,
+        538.0,
+        601.0
+      ]
+    },
+    "ideal_rocket_equation": {
+      "path": "../videos/Aerospace/MIT 16.00x Aerospace (4-5) [2]/2.3.1_Ideal_Rocket_Equation_12.mp4",
+      "trigger_timestamps_sec": [
+        55.0, 
+        120.0,
+        175.0,
+        237.0,
+        302.0,
+        366.0,
+        414.0,
+        479.0,
+        538.0,
+        600.0,
+        665.0,
+        717.0
+      ]
+    },
+    "atmosphere_pressure_composition": {
+      "path": "../videos/Aerospace/MIT 16.00x Aerospace (4-5) [2]/3.3.2_Atmospheric_Pressure_Composition_11.mp4",
+      "trigger_timestamps_sec": [
+        57.0, 
+        126.0,
+        180.0,
+        240.0,
+        304.0,
+        360.0,
+        430.0,
+        480.0,
+        540.0,
+        600.0,
+        664.0
+      ]
+    },
+    "xray_diffraction": {
+      "path": "../videos/XRays/MIT 3.012S.1x Structure of Materials (1-2) [1]/2_X_Ray_Diffraction_12.mp4",
+      "trigger_timestamps_sec": [
+        58.0, 
+        120.0,
+        179.0,
+        238.0,
+        298.0,
+        371.0,
+        420.0,
+        480.0,
+        547.0,
+        596.0,
+        659.0,
+        728.0
+      ]
+    },
+    "healing_radiation": {
+      "path": "../videos/XRays/MIT 22.011x Nuclear Energy (2-3) [1]/1.3.7_Using_Radiation_To_Heal_9.mp4",
+      "trigger_timestamps_sec": [
+        56.0, 
+        116.0,
+        180.0,
+        236.0,
+        299.0,
+        359.0,
+        425.0,
+        480.0,
+        538.0,
+        587.0
+      ]
+    },
+    "training": {
+      "path": "../videos/Training/training_video.mp4",
+      "trigger_timestamps_sec": [
+        30.0,
+        60.0, 
+        90.0,
+        120.0,
+        150.0,
+        180.0
+      ]
+    }
+  }
+}
+

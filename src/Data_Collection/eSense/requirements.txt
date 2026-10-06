@@ -1,0 +1,5 @@
+asyncio
+bleak
+nest_asyncio
+pandas
+matplotlib
