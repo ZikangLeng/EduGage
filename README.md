@@ -24,6 +24,12 @@ through the [public Figshare dataset page](https://doi.org/10.6084/m9.figshare.3
 It contains one folder per participant session; the files are raw collection
 outputs, not cleaned/aligned/windowed preprocessing products.
 
+The source code used to collect the raw experiment streams is included in
+`src/Data_Collection/`. That folder contains the experiment player and collection
+wrappers for the released sensor streams. Proprietary SDK bundles, generated
+build outputs, local device identifiers, and raw participant data are
+intentionally excluded.
+
 ## 1. Set Up Python
 
 From the repository root:
